@@ -103,7 +103,96 @@ Dynamic alert system that detects when progress stalls.
 
 ---
 
-### 3️⃣ **Main Composition Trends - The Big Picture**
+### 3️⃣ **Nutrition Tracking - Fuel Your Progress**
+
+Track your daily nutrition intake to understand how your diet impacts body composition.
+
+#### What You Can Track
+- **Daily Calorie Intake**: Total calories consumed per day
+- **Macronutrient Split**: Protein, Fat, and Carbs percentages (must total 100%)
+- **Automatic Calculations**: Grams of each macro based on your calorie intake
+
+#### Insights Provided
+**💪 Protein Intake Analysis**
+- **Grams per kg body weight**: Optimal range is 1.6-2.2 g/kg
+- **Status Assessment**: EXCELLENT, GOOD, MODERATE, or LOW
+- **Recommendations**: Personalized suggestions based on your current intake
+
+**🔥 Training Phase Detection**
+- **TDEE Estimation**: Reverse-calculated from your actual weight changes
+- **Caloric Balance**: Surplus or deficit calculation
+- **Phase Classification**:
+  - MAINTENANCE: Stable weight (±0.1kg/week)
+  - LEAN BULK: +0.2 to +0.5kg/week (optimal muscle building)
+  - AGGRESSIVE BULK: +0.5kg/week (high fat gain risk)
+  - RECOMPOSITION: -0.3 to +0.2kg/week (body recomp zone)
+  - CUT: -0.3 to -0.8kg/week (fat loss phase)
+  - AGGRESSIVE CUT: -0.8kg/week+ (muscle loss risk)
+
+**⚡ Nutrient Partitioning Efficiency**
+- **Recomp Score**: (Muscle Gained - Fat Gained) ÷ Caloric Balance × 100
+- **Quality Ratings**: ELITE (>15), EXCELLENT (>10), GOOD (>5)
+- **Muscle per 100 cal**: How efficiently you convert surplus calories to muscle
+
+#### How to Use
+1. **Set Your Intake**: Enter current daily calories and macro split
+2. **Save Settings**: Persists across sessions
+3. **Monitor Insights**: Check if your intake aligns with your goals
+4. **Adjust as Needed**: Use TDEE and phase detection to optimize intake
+
+---
+
+### 4️⃣ **Goal Tracking - Predict Your Success**
+
+Set target weight goals and get science-based predictions for achieving them.
+
+#### What You Can Set
+- **Target Weight**: Your desired end weight in kg
+- **Target Date** (Optional): When you want to reach your goal
+- **Clear Goal**: Remove goal when achieved or changing direction
+
+#### Predictions Provided
+**🎯 Goal Progress**
+- Current → Target weight visualization
+- Total weight to gain or lose
+
+**📅 Time to Goal**
+- **Weeks at Current Pace**: Based on your last 30 days
+- **ETA Date**: Estimated arrival at your goal weight
+- **Progress Warnings**: Alerts if moving away from goal or insufficient progress
+
+**🔥 Recommended Calorie Intake**
+- **Optimal Daily Calories**: Calculated for healthy rate of change
+- **Adjustment from TDEE**: How much to increase/decrease
+- **Optimal Rate Guidance**:
+  - Cutting: 0.5-0.8 kg/week (preserves muscle)
+  - Bulking: 0.2-0.5 kg/week (minimizes fat gain)
+
+**📊 Body Composition Predictions**
+- **Predicted Muscle at Goal**: Based on current trajectory
+- **Predicted Fat at Goal**: Using recent composition changes
+- **Quality Assessment**:
+  - **ELITE/EXCELLENT** (Cutting): Preserving muscle while losing fat
+  - **ELITE/EXCELLENT** (Bulking): Gaining 2:1 or better muscle:fat ratio
+  - **WARNING**: Risk of excessive muscle loss or fat gain
+
+#### Example Predictions
+If you set target weight of **70kg** (from current 66.6kg):
+- **Goal**: 66.6kg → 70kg (3.4kg to gain)
+- **At Current Pace**: ~20 weeks
+- **Recommended Intake**: 3300-3400 cal/day
+- **Prediction**: Muscle +3.0kg, Fat +0.8kg - EXCELLENT trajectory
+
+#### How to Use
+1. **Set Your Goal**: Enter target weight and optional date
+2. **Review Predictions**: Check if timeline and composition changes are acceptable
+3. **Adjust Strategy**: Use recommended calories to optimize your approach
+4. **Track Progress**: Monitor how actual progress compares to predictions
+5. **Iterate**: Update goal as you progress or when priorities change
+
+---
+
+### 5️⃣ **Main Composition Trends - The Big Picture**
 
 Multi-line chart showing muscle, fat, and weight over time with 7-day moving averages.
 
@@ -131,7 +220,7 @@ Multi-line chart showing muscle, fat, and weight over time with 7-day moving ave
 
 ---
 
-### 4️⃣ **Recomposition Divergence Chart - Dual-Axis Victory**
+### 6️⃣ **Recomposition Divergence Chart - Dual-Axis Victory**
 
 Shows muscle (left axis) and fat (right axis) on same chart with opposite scales.
 
@@ -152,7 +241,7 @@ Shows muscle (left axis) and fat (right axis) on same chart with opposite scales
 
 ---
 
-### 5️⃣ **Segment Analysis Charts - Find Your Weak Points**
+### 7️⃣ **Segment Analysis Charts - Find Your Weak Points**
 
 Six charts showing muscle and fat distribution across body segments.
 
@@ -186,7 +275,7 @@ Six charts showing muscle and fat distribution across body segments.
 
 ---
 
-### 6️⃣ **Health Indicators - Beyond Aesthetics**
+### 8️⃣ **Health Indicators - Beyond Aesthetics**
 
 Three critical health metrics tracked over time.
 
@@ -227,7 +316,7 @@ Three critical health metrics tracked over time.
 
 ---
 
-### 7️⃣ **Phase Angle Chart - Recovery & Cellular Health**
+### 9️⃣ **Phase Angle Chart - Recovery & Cellular Health**
 
 Advanced bioelectrical impedance metric tracking cellular integrity.
 
@@ -258,7 +347,7 @@ Advanced bioelectrical impedance metric tracking cellular integrity.
 
 ---
 
-### 8️⃣ **Body Composition Ratios - Professional Metrics**
+### 🔟 **Body Composition Ratios - Professional Metrics**
 
 Five advanced metrics used by sports scientists and elite coaches.
 
@@ -307,7 +396,7 @@ Five advanced metrics used by sports scientists and elite coaches.
 
 ---
 
-### 9️⃣ **Recovery Dashboard - Train Smarter, Not Just Harder**
+### 1️⃣1️⃣ **Recovery Dashboard - Train Smarter, Not Just Harder**
 
 #### Training Readiness Indicator
 - **Composite score**: 0-100 based on Phase Angle, Hydration, BMR
@@ -355,7 +444,7 @@ Phase angle breakdown for trunk, arms, and legs.
 
 ---
 
-### 1️⃣1️⃣ **Water Distribution Chart - Hydration & Inflammation**
+### 1️⃣2️⃣ **Water Distribution Chart - Hydration & Inflammation**
 
 Tracks intracellular vs. extracellular water over time.
 
@@ -383,7 +472,7 @@ Tracks intracellular vs. extracellular water over time.
 
 ---
 
-### 1️⃣2️⃣ **Velocity & Acceleration Metrics - Rate of Change**
+### 1️⃣3️⃣ **Velocity & Acceleration Metrics - Rate of Change**
 
 Shows HOW FAST you're changing, not just the total change.
 
@@ -404,7 +493,7 @@ Shows HOW FAST you're changing, not just the total change.
 
 ---
 
-### 1️⃣3️⃣ **90-Day Projection Charts - Crystal Ball**
+### 1️⃣4️⃣ **90-Day Projection Charts - Crystal Ball**
 
 Three forecast charts using linear regression to project future values.
 
@@ -431,27 +520,6 @@ Three forecast charts using linear regression to project future values.
 - **Linear assumption**: Assumes current rate continues (rarely perfect)
 - **Not prophesy**: Life happens, rates change
 - **Use for direction**: Is trend going the right way?
-
----
-
-### 1️⃣4️⃣ **Goal Tracker - Achievement Estimates**
-
-Calculates timeline to reach specific goals based on current velocity.
-
-#### What It Shows
-- **Days to goal**: Time needed to reach target
-- **Target date**: Specific calendar date
-- **Feasibility**: Whether goal is achievable at current rate
-
-#### Example Goals
-- **Muscle**: Gain 2kg muscle
-- **Fat**: Lose 5kg fat  
-- **Weight**: Maintain current weight ±1kg
-
-#### Why It Matters
-- **Realistic expectations**: "6-pack abs by next month" → Nope, try 6 months
-- **Motivation**: "Only 45 days until I hit my muscle goal!"
-- **Course correction**: If timeline too long, increase training/nutrition adherence
 
 ---
 

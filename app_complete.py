@@ -24,10 +24,33 @@ CONFIG_FILE = 'config.json'
 
 def load_config():
     """Load configuration from JSON file"""
+    default_config = {
+        'last_file': 'data/BoditraxAccount_20251006_102227.csv',
+        'nutrition': {
+            'daily_calories': 2400,
+            'protein_pct': 35,
+            'fat_pct': 30,
+            'carbs_pct': 35,
+            'last_updated': None
+        },
+        'goals': {
+            'target_weight': None,
+            'target_date': None,
+            'last_updated': None
+        }
+    }
+
     if os.path.exists(CONFIG_FILE):
         with open(CONFIG_FILE, 'r') as f:
-            return json.load(f)
-    return {'last_file': 'data/BoditraxAccount_20251006_102227.csv'}
+            config = json.load(f)
+            # Ensure nutrition key exists (backward compatibility)
+            if 'nutrition' not in config:
+                config['nutrition'] = default_config['nutrition']
+            # Ensure goals key exists (backward compatibility)
+            if 'goals' not in config:
+                config['goals'] = default_config['goals']
+            return config
+    return default_config
 
 def save_config(config):
     """Save configuration to JSON file"""
@@ -442,6 +465,312 @@ def calculate_recovery_score(df_wide):
     )
 
     return df_recovery
+
+
+# ============================================================================
+# NUTRITION ANALYTICS MODULE
+# ============================================================================
+
+def calculate_nutrition_metrics(df_wide, nutrition_config):
+    """
+    Calculate comprehensive nutrition analytics including protein adequacy,
+    TDEE estimation, phase detection, and caloric efficiency
+    """
+    metrics = {}
+
+    if nutrition_config is None or len(df_wide) < 2:
+        return metrics
+
+    daily_calories = nutrition_config.get('daily_calories', 2400)
+    protein_pct = nutrition_config.get('protein_pct', 35)
+    fat_pct = nutrition_config.get('fat_pct', 30)
+    carbs_pct = nutrition_config.get('carbs_pct', 35)
+
+    # Calculate macros in grams
+    protein_grams = (daily_calories * protein_pct / 100) / 4  # 4 cal/gram
+    fat_grams = (daily_calories * fat_pct / 100) / 9  # 9 cal/gram
+    carbs_grams = (daily_calories * carbs_pct / 100) / 4  # 4 cal/gram
+
+    metrics['protein_grams'] = protein_grams
+    metrics['fat_grams'] = fat_grams
+    metrics['carbs_grams'] = carbs_grams
+
+    # Current body weight
+    current_weight = df_wide['BodyWeight'].iloc[-1] if 'BodyWeight' in df_wide.columns else None
+    if current_weight:
+        metrics['protein_per_kg'] = protein_grams / current_weight
+
+        # Protein adequacy assessment
+        if metrics['protein_per_kg'] >= 2.2:
+            metrics['protein_status'] = 'EXCELLENT'
+            metrics['protein_color'] = '#83AE00'
+            metrics['protein_message'] = f"Excellent protein intake ({metrics['protein_per_kg']:.1f}g/kg)"
+        elif metrics['protein_per_kg'] >= 1.6:
+            metrics['protein_status'] = 'GOOD'
+            metrics['protein_color'] = '#83AE00'
+            metrics['protein_message'] = f"Good protein intake ({metrics['protein_per_kg']:.1f}g/kg)"
+        elif metrics['protein_per_kg'] >= 1.2:
+            metrics['protein_status'] = 'MODERATE'
+            metrics['protein_color'] = '#FFA500'
+            metrics['protein_message'] = f"Moderate protein ({metrics['protein_per_kg']:.1f}g/kg) - consider increasing to 1.8g/kg"
+        else:
+            metrics['protein_status'] = 'LOW'
+            metrics['protein_color'] = '#852160'
+            metrics['protein_message'] = f"Low protein ({metrics['protein_per_kg']:.1f}g/kg) - risk of muscle loss"
+
+    # TDEE Estimation based on results (last 30 days)
+    if 'BodyWeight' in df_wide.columns and len(df_wide) >= 4:
+        recent_data = df_wide.tail(30) if len(df_wide) >= 30 else df_wide
+
+        weight_change = recent_data['BodyWeight'].iloc[-1] - recent_data['BodyWeight'].iloc[0]
+        days = (recent_data.index[-1] - recent_data.index[0]).days
+
+        if days > 0:
+            # 1 kg = ~7700 calories
+            calories_per_day_change = (weight_change * 7700) / days
+            estimated_tdee = daily_calories - calories_per_day_change
+
+            metrics['estimated_tdee'] = int(estimated_tdee)
+            metrics['caloric_balance'] = int(daily_calories - estimated_tdee)
+
+            # Phase Detection
+            weekly_weight_change = (weight_change / days) * 7
+
+            if abs(weekly_weight_change) < 0.1:
+                metrics['phase'] = 'MAINTENANCE'
+                metrics['phase_color'] = '#5a6b8a'
+                metrics['phase_desc'] = 'Maintaining weight'
+            elif weekly_weight_change > 0.5:
+                metrics['phase'] = 'AGGRESSIVE BULK'
+                metrics['phase_color'] = '#FFA500'
+                metrics['phase_desc'] = f'Gaining {abs(weekly_weight_change):.2f}kg/week - high risk of fat gain'
+            elif weekly_weight_change > 0.2:
+                metrics['phase'] = 'LEAN BULK'
+                metrics['phase_color'] = '#83AE00'
+                metrics['phase_desc'] = f'Gaining {abs(weekly_weight_change):.2f}kg/week - optimal muscle building'
+            elif weekly_weight_change > -0.3:
+                metrics['phase'] = 'RECOMPOSITION'
+                metrics['phase_color'] = '#001c71'
+                metrics['phase_desc'] = f'Weight change {weekly_weight_change:+.2f}kg/week - body recomposition zone'
+            elif weekly_weight_change > -0.8:
+                metrics['phase'] = 'CUT'
+                metrics['phase_color'] = '#852160'
+                metrics['phase_desc'] = f'Losing {abs(weekly_weight_change):.2f}kg/week - fat loss phase'
+            else:
+                metrics['phase'] = 'AGGRESSIVE CUT'
+                metrics['phase_color'] = '#852160'
+                metrics['phase_desc'] = f'Losing {abs(weekly_weight_change):.2f}kg/week - risk of muscle loss'
+
+    # Caloric Efficiency (last 30 days)
+    if 'MuscleMass' in df_wide.columns and 'FatMass' in df_wide.columns and len(df_wide) >= 4:
+        recent_data = df_wide.tail(30) if len(df_wide) >= 30 else df_wide
+
+        muscle_change = recent_data['MuscleMass'].iloc[-1] - recent_data['MuscleMass'].iloc[0]
+        fat_change = recent_data['FatMass'].iloc[-1] - recent_data['FatMass'].iloc[0]
+        days = (recent_data.index[-1] - recent_data.index[0]).days
+
+        if days > 7 and 'caloric_balance' in metrics and metrics['caloric_balance'] != 0:
+            # Calculate composition change per 100 calories surplus/deficit
+            total_caloric_balance = metrics['caloric_balance'] * days
+
+            if total_caloric_balance > 0:  # Surplus
+                metrics['muscle_per_100cal'] = (muscle_change / total_caloric_balance) * 100
+                metrics['fat_per_100cal'] = (fat_change / total_caloric_balance) * 100
+
+                # Nutrient partitioning score
+                recomp_score = (muscle_change - fat_change) / abs(metrics['caloric_balance']) * 100
+                metrics['recomp_efficiency'] = recomp_score
+
+                if recomp_score > 15:
+                    metrics['efficiency_status'] = 'ELITE'
+                    metrics['efficiency_color'] = '#83AE00'
+                elif recomp_score > 10:
+                    metrics['efficiency_status'] = 'EXCELLENT'
+                    metrics['efficiency_color'] = '#83AE00'
+                elif recomp_score > 5:
+                    metrics['efficiency_status'] = 'GOOD'
+                    metrics['efficiency_color'] = '#001c71'
+                else:
+                    metrics['efficiency_status'] = 'NEEDS IMPROVEMENT'
+                    metrics['efficiency_color'] = '#FFA500'
+            else:  # Deficit
+                metrics['muscle_per_100cal_deficit'] = (muscle_change / abs(total_caloric_balance)) * 100
+                metrics['fat_per_100cal_deficit'] = (fat_change / abs(total_caloric_balance)) * 100
+
+    return metrics
+
+
+def calculate_goal_metrics(df_wide, goals_config, nutrition_config, nutrition_metrics):
+    """
+    Calculate goal-based predictions including:
+    - Time to goal at current pace
+    - Recommended calorie intake to reach goal optimally
+    - Predicted body composition at goal weight
+    - Whether goal is realistic given current trajectory
+    """
+    metrics = {}
+
+    if goals_config is None or goals_config.get('target_weight') is None:
+        return metrics
+
+    target_weight = goals_config.get('target_weight')
+    target_date = goals_config.get('target_date')
+
+    if len(df_wide) < 4 or 'BodyWeight' not in df_wide.columns:
+        return metrics
+
+    # Current stats
+    current_weight = df_wide['BodyWeight'].iloc[-1]
+    current_muscle = df_wide['MuscleMass'].iloc[-1] if 'MuscleMass' in df_wide.columns else None
+    current_fat = df_wide['FatMass'].iloc[-1] if 'FatMass' in df_wide.columns else None
+
+    metrics['current_weight'] = current_weight
+    metrics['target_weight'] = target_weight
+    metrics['weight_to_change'] = target_weight - current_weight
+    metrics['is_cutting'] = metrics['weight_to_change'] < 0
+
+    # Calculate current velocity (last 30 days)
+    recent_data = df_wide.tail(30) if len(df_wide) >= 30 else df_wide
+    if len(recent_data) >= 4:
+        weight_change = recent_data['BodyWeight'].iloc[-1] - recent_data['BodyWeight'].iloc[0]
+        days = (recent_data.index[-1] - recent_data.index[0]).days
+
+        if days > 0:
+            weekly_velocity = (weight_change / days) * 7
+            metrics['current_velocity_kg_week'] = weekly_velocity
+
+            # Time to goal at current pace
+            if abs(weekly_velocity) > 0.05:  # Only if making meaningful progress
+                weeks_to_goal = metrics['weight_to_change'] / weekly_velocity
+                metrics['weeks_to_goal_current_pace'] = weeks_to_goal
+                metrics['date_at_goal_current_pace'] = datetime.now() + timedelta(weeks=weeks_to_goal)
+
+                if weeks_to_goal > 0:
+                    metrics['will_reach_goal'] = True
+                else:
+                    metrics['will_reach_goal'] = False
+                    metrics['issue'] = 'Moving away from goal'
+            else:
+                metrics['will_reach_goal'] = False
+                metrics['issue'] = 'Insufficient progress (maintaining weight)'
+
+    # Optimal rate recommendations
+    if metrics['is_cutting']:
+        # Cutting: -0.5 to -0.8 kg/week is optimal (preserves muscle)
+        metrics['optimal_rate_min'] = -0.8
+        metrics['optimal_rate_max'] = -0.5
+        metrics['optimal_rate_label'] = '0.5-0.8 kg/week loss'
+    else:
+        # Bulking: +0.2 to +0.5 kg/week is optimal (minimizes fat gain)
+        metrics['optimal_rate_min'] = 0.2
+        metrics['optimal_rate_max'] = 0.5
+        metrics['optimal_rate_label'] = '0.2-0.5 kg/week gain'
+
+    # Calculate optimal timeframe
+    avg_optimal_rate = (metrics['optimal_rate_min'] + metrics['optimal_rate_max']) / 2
+    metrics['weeks_at_optimal_pace'] = metrics['weight_to_change'] / avg_optimal_rate
+    metrics['date_at_optimal_pace'] = datetime.now() + timedelta(weeks=metrics['weeks_at_optimal_pace'])
+
+    # If user specified target date, calculate required rate
+    if target_date:
+        try:
+            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+            weeks_until_target = (target_dt - datetime.now()).days / 7
+
+            if weeks_until_target > 0:
+                metrics['target_date_dt'] = target_dt
+                metrics['weeks_until_target_date'] = weeks_until_target
+                metrics['required_rate_kg_week'] = metrics['weight_to_change'] / weeks_until_target
+
+                # Is the target date realistic?
+                if metrics['is_cutting']:
+                    metrics['target_date_realistic'] = (
+                        metrics['required_rate_kg_week'] >= -1.0 and  # Not too aggressive
+                        metrics['required_rate_kg_week'] <= -0.2      # Not too slow (some deficit needed)
+                    )
+                else:
+                    metrics['target_date_realistic'] = (
+                        metrics['required_rate_kg_week'] <= 0.7 and   # Not too aggressive
+                        metrics['required_rate_kg_week'] >= 0.1       # Not too slow
+                    )
+        except:
+            pass
+
+    # Calculate recommended calorie adjustment
+    if nutrition_metrics and 'estimated_tdee' in nutrition_metrics:
+        tdee = nutrition_metrics['estimated_tdee']
+        metrics['tdee'] = tdee
+
+        # 1 kg = ~7700 calories
+        # For avg_optimal_rate kg/week: need (avg_optimal_rate * 7700) / 7 cal/day surplus/deficit
+        cal_per_day_adjustment = (avg_optimal_rate * 7700) / 7
+
+        metrics['recommended_daily_calories'] = int(tdee + cal_per_day_adjustment)
+        metrics['calorie_adjustment'] = int(cal_per_day_adjustment)
+
+        # Current intake
+        if nutrition_config:
+            current_intake = nutrition_config.get('daily_calories', 2400)
+            metrics['current_intake'] = current_intake
+            metrics['intake_delta'] = metrics['recommended_daily_calories'] - current_intake
+
+    # Predict body composition at goal (if we have current composition)
+    if current_muscle and current_fat and 'current_velocity_kg_week' in metrics:
+        # Use recent composition changes to predict
+        if 'MuscleMass' in recent_data.columns and 'FatMass' in recent_data.columns:
+            muscle_change = recent_data['MuscleMass'].iloc[-1] - recent_data['MuscleMass'].iloc[0]
+            fat_change = recent_data['FatMass'].iloc[-1] - recent_data['FatMass'].iloc[0]
+
+            if days > 0:
+                muscle_per_kg_weight = muscle_change / weight_change if abs(weight_change) > 0.1 else 0
+                fat_per_kg_weight = fat_change / weight_change if abs(weight_change) > 0.1 else 0
+
+                # Project to goal weight
+                predicted_muscle = current_muscle + (metrics['weight_to_change'] * muscle_per_kg_weight)
+                predicted_fat = current_fat + (metrics['weight_to_change'] * fat_per_kg_weight)
+
+                metrics['predicted_muscle_at_goal'] = predicted_muscle
+                metrics['predicted_fat_at_goal'] = predicted_fat
+                metrics['predicted_muscle_change'] = predicted_muscle - current_muscle
+                metrics['predicted_fat_change'] = predicted_fat - current_fat
+
+                # Assess quality of prediction
+                if metrics['is_cutting']:
+                    # Cutting: want to lose fat, preserve muscle
+                    if metrics['predicted_muscle_change'] >= -0.5:  # Minimal muscle loss acceptable
+                        metrics['prediction_quality'] = 'EXCELLENT'
+                        metrics['prediction_color'] = '#83AE00'
+                        metrics['prediction_message'] = 'Excellent trajectory - preserving muscle while losing fat'
+                    elif metrics['predicted_muscle_change'] >= -2.0:
+                        metrics['prediction_quality'] = 'GOOD'
+                        metrics['prediction_color'] = '#001c71'
+                        metrics['prediction_message'] = 'Good trajectory - some muscle loss expected'
+                    else:
+                        metrics['prediction_quality'] = 'WARNING'
+                        metrics['prediction_color'] = '#FFA500'
+                        metrics['prediction_message'] = 'Warning: Significant muscle loss predicted - consider slower cut'
+                else:
+                    # Bulking: want to gain muscle, minimize fat
+                    muscle_to_fat_ratio = abs(metrics['predicted_muscle_change'] / metrics['predicted_fat_change']) if abs(metrics['predicted_fat_change']) > 0.1 else 0
+
+                    if muscle_to_fat_ratio > 2.0:
+                        metrics['prediction_quality'] = 'ELITE'
+                        metrics['prediction_color'] = '#83AE00'
+                        metrics['prediction_message'] = 'Elite trajectory - gaining >2kg muscle per 1kg fat'
+                    elif muscle_to_fat_ratio > 1.0:
+                        metrics['prediction_quality'] = 'EXCELLENT'
+                        metrics['prediction_color'] = '#83AE00'
+                        metrics['prediction_message'] = 'Excellent trajectory - gaining more muscle than fat'
+                    elif muscle_to_fat_ratio > 0.5:
+                        metrics['prediction_quality'] = 'GOOD'
+                        metrics['prediction_color'] = '#001c71'
+                        metrics['prediction_message'] = 'Good trajectory for lean bulk'
+                    else:
+                        metrics['prediction_quality'] = 'WARNING'
+                        metrics['prediction_color'] = '#FFA500'
+                        metrics['prediction_message'] = 'Warning: Gaining more fat than muscle - consider calorie adjustment'
+
+    return metrics
 
 
 def calculate_velocity_metrics(df_wide):
@@ -1340,7 +1669,13 @@ app = dash.Dash(
     external_stylesheets=['assets/jazz_theme.css']
 )
 
-app.layout = html.Div([
+def serve_layout():
+    """
+    Serve layout as a function to reload config on each page load.
+    This ensures nutrition form inputs show the latest saved values after browser refresh.
+    """
+    config = load_config()  # Reload config from disk on each page load
+    return html.Div([
     # Header
     html.Div([
         html.H1("Body Recomposition Tracker", className="page-title"),
@@ -1366,6 +1701,119 @@ app.layout = html.Div([
             dcc.Download(id='download-pdf')
         ], className="filter-group"),
     ], className="filters", style={'marginBottom': '20px'}),
+
+    # Nutrition Tracking
+    html.Div([
+        html.H3("🍽️ Nutrition Tracking", style={'marginBottom': '15px', 'color': '#001c71'}),
+        html.Div([
+            html.Div([
+                html.Label("Daily Calories:", className="filter-label"),
+                dcc.Input(
+                    id='nutrition-calories',
+                    type='number',
+                    value=config['nutrition']['daily_calories'],
+                    min=1000,
+                    max=6000,
+                    step=50,
+                    style={'width': '100%', 'padding': '8px', 'borderRadius': '6px', 'border': '1px solid #dae0ee'}
+                )
+            ], className="filter-group", style={'flex': '1 1 150px'}),
+
+            html.Div([
+                html.Label("Protein %:", className="filter-label"),
+                dcc.Input(
+                    id='nutrition-protein-pct',
+                    type='number',
+                    value=config['nutrition']['protein_pct'],
+                    min=10,
+                    max=60,
+                    step=5,
+                    style={'width': '100%', 'padding': '8px', 'borderRadius': '6px', 'border': '1px solid #dae0ee'}
+                )
+            ], className="filter-group", style={'flex': '1 1 120px'}),
+
+            html.Div([
+                html.Label("Fat %:", className="filter-label"),
+                dcc.Input(
+                    id='nutrition-fat-pct',
+                    type='number',
+                    value=config['nutrition']['fat_pct'],
+                    min=10,
+                    max=60,
+                    step=5,
+                    style={'width': '100%', 'padding': '8px', 'borderRadius': '6px', 'border': '1px solid #dae0ee'}
+                )
+            ], className="filter-group", style={'flex': '1 1 120px'}),
+
+            html.Div([
+                html.Label("Carbs %:", className="filter-label"),
+                dcc.Input(
+                    id='nutrition-carbs-pct',
+                    type='number',
+                    value=config['nutrition']['carbs_pct'],
+                    min=10,
+                    max=70,
+                    step=5,
+                    style={'width': '100%', 'padding': '8px', 'borderRadius': '6px', 'border': '1px solid #dae0ee'}
+                )
+            ], className="filter-group", style={'flex': '1 1 120px'}),
+
+            html.Div([
+                html.Label("​", className="filter-label"),  # Spacer
+                html.Button('💾 Save Nutrition', id='save-nutrition-button', className='upload-button',
+                           style={'marginTop': '0px'})
+            ], className="filter-group", style={'flex': '1 1 150px'}),
+        ], style={'display': 'flex', 'gap': '15px', 'flexWrap': 'wrap', 'alignItems': 'flex-end'}),
+
+        html.Div(id='nutrition-status', style={'marginTop': '10px', 'fontSize': '14px'}),
+        html.Div(id='nutrition-summary', style={'marginTop': '10px', 'fontSize': '14px', 'color': '#5a6b8a'})
+    ], style={'marginBottom': '20px', 'padding': '20px', 'backgroundColor': '#f9fbfc', 'borderRadius': '12px', 'border': '1px solid #dae0ee'}),
+
+    # Goal Tracking
+    html.Div([
+        html.H3("🎯 Goal Tracking", style={'marginBottom': '15px', 'color': '#001c71'}),
+        html.Div([
+            html.Div([
+                html.Label("Target Weight (kg):", className="filter-label"),
+                dcc.Input(
+                    id='goal-target-weight',
+                    type='number',
+                    value=config['goals']['target_weight'],
+                    min=40,
+                    max=200,
+                    step=0.5,
+                    placeholder="e.g., 75.0",
+                    style={'width': '100%', 'padding': '8px', 'borderRadius': '6px', 'border': '1px solid #dae0ee'}
+                )
+            ], className="filter-group", style={'flex': '1 1 180px'}),
+
+            html.Div([
+                html.Label("Target Date (Optional):", className="filter-label"),
+                dcc.DatePickerSingle(
+                    id='goal-target-date',
+                    date=config['goals']['target_date'],
+                    display_format='YYYY-MM-DD',
+                    placeholder='Select date',
+                    min_date_allowed=datetime.now().date(),
+                    style={'width': '100%'}
+                )
+            ], className="filter-group", style={'flex': '1 1 180px'}),
+
+            html.Div([
+                html.Label("​", className="filter-label"),  # Spacer
+                html.Button('🎯 Save Goal', id='save-goal-button', className='upload-button',
+                           style={'marginTop': '0px'})
+            ], className="filter-group", style={'flex': '1 1 150px'}),
+
+            html.Div([
+                html.Label("​", className="filter-label"),  # Spacer
+                html.Button('🗑️ Clear Goal', id='clear-goal-button',
+                           style={'marginTop': '0px', 'padding': '12px 24px', 'border': 'none', 'borderRadius': '8px', 'fontSize': '1rem', 'fontWeight': '600', 'cursor': 'pointer', 'backgroundColor': '#f0f0f0', 'color': '#5a6b8a', 'transition': 'all 0.2s ease'})
+            ], className="filter-group", style={'flex': '1 1 150px'}),
+        ], style={'display': 'flex', 'gap': '15px', 'flexWrap': 'wrap', 'alignItems': 'flex-end'}),
+
+        html.Div(id='goal-status', style={'marginTop': '10px', 'fontSize': '14px'})
+    ], style={'marginBottom': '20px', 'padding': '20px', 'backgroundColor': '#f7e6ef', 'borderRadius': '12px', 'border': '2px solid #852160'}),
 
     # Date Range Filter
     html.Div([
@@ -1415,6 +1863,12 @@ app.layout = html.Div([
 
     # Plateau Alerts Section (NEW)
     html.Div(id='plateau-alerts', style={'marginTop': '20px', 'marginBottom': '20px'}),
+
+    # Nutrition Insights Section
+    html.Div(id='nutrition-insights', style={'marginBottom': '20px'}),
+
+    # Goal Insights Section
+    html.Div(id='goal-insights', style={'marginBottom': '20px'}),
 
     # Main Composition Trends (with 7-day MA)
     html.Div([
@@ -1559,6 +2013,8 @@ app.layout = html.Div([
 
 ], className="jazz-app")
 
+# Assign the layout function (called on each page load)
+app.layout = serve_layout
 
 # ============================================================================
 # CALLBACKS
@@ -1577,6 +2033,8 @@ def toggle_custom_dates(preset):
 @app.callback(
     [Output('kpi-cards', 'children'),
      Output('plateau-alerts', 'children'),
+     Output('nutrition-insights', 'children'),
+     Output('goal-insights', 'children'),
      Output('composition-trend', 'figure'),
      Output('recomp-divergence', 'figure'),
      Output('trunk-analysis', 'figure'),
@@ -1606,6 +2064,9 @@ def toggle_custom_dates(preset):
 def update_dashboard(preset, custom_start, custom_end):
     """Update all dashboard components based on date filter"""
 
+    # Reload config to get latest nutrition values
+    config = load_config()
+
     # Filter data based on selection
     df_wide = df_wide_full.copy()
 
@@ -1624,6 +2085,12 @@ def update_dashboard(preset, custom_start, custom_end):
 
     # Detect plateaus
     plateaus = detect_plateaus(df_wide)
+
+    # Calculate nutrition metrics
+    nutrition_metrics = calculate_nutrition_metrics(df_wide, config.get('nutrition'))
+
+    # Calculate goal metrics
+    goal_metrics = calculate_goal_metrics(df_wide, config.get('goals'), config.get('nutrition'), nutrition_metrics)
 
     # Determine plateau warnings for KPI cards
     muscle_warning = ""
@@ -1971,11 +2438,322 @@ def update_dashboard(preset, custom_start, custom_end):
 
     table_data = df_wide.reset_index().round(1).to_dict('records')
 
-    return (kpi_cards, plateau_section, comp_fig, recomp_fig, trunk_fig, leftleg_fig, leftarm_fig,
+    # Nutrition Insights Display
+    if nutrition_metrics:
+        nutrition_cards = []
+
+        # Protein Status Card
+        if 'protein_per_kg' in nutrition_metrics:
+            nutrition_cards.append(
+                html.Div([
+                    html.H4("💪 Protein Intake", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(f"{nutrition_metrics['protein_grams']:.0f}g ({nutrition_metrics['protein_per_kg']:.1f}g/kg)",
+                            style={'fontSize': '1.5rem', 'fontWeight': 'bold', 'color': nutrition_metrics.get('protein_color', '#001c71'), 'marginBottom': '5px'}),
+                    html.Div(nutrition_metrics.get('protein_message', ''), style={'fontSize': '0.85rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': f"2px solid {nutrition_metrics.get('protein_color', '#dae0ee')}"})
+            )
+
+        # TDEE & Phase Card
+        if 'estimated_tdee' in nutrition_metrics:
+            nutrition_cards.append(
+                html.Div([
+                    html.H4(f"🔥 {nutrition_metrics.get('phase', 'PHASE')}", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(f"TDEE: {nutrition_metrics['estimated_tdee']} cal",
+                            style={'fontSize': '1.2rem', 'fontWeight': 'bold', 'color': nutrition_metrics.get('phase_color', '#001c71'), 'marginBottom': '5px'}),
+                    html.Div(f"Balance: {nutrition_metrics['caloric_balance']:+d} cal/day", style={'fontSize': '0.95rem', 'marginBottom': '5px'}),
+                    html.Div(nutrition_metrics.get('phase_desc', ''), style={'fontSize': '0.85rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': f"2px solid {nutrition_metrics.get('phase_color', '#dae0ee')}"})
+            )
+
+        # Efficiency Card (if available)
+        if 'recomp_efficiency' in nutrition_metrics:
+            nutrition_cards.append(
+                html.Div([
+                    html.H4(f"⚡ {nutrition_metrics.get('efficiency_status', 'EFFICIENCY')}", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(f"Score: {nutrition_metrics['recomp_efficiency']:.1f}",
+                            style={'fontSize': '1.5rem', 'fontWeight': 'bold', 'color': nutrition_metrics.get('efficiency_color', '#001c71'), 'marginBottom': '5px'}),
+                    html.Div(f"Muscle: {nutrition_metrics.get('muscle_per_100cal', 0):.2f}kg per 100 cal surplus",
+                            style={'fontSize': '0.85rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': f"2px solid {nutrition_metrics.get('efficiency_color', '#dae0ee')}"})
+            )
+
+        nutrition_insights = html.Div([
+            html.H2("🍽️ Nutrition Insights", className="section-title"),
+            html.Div(nutrition_cards, style={'display': 'flex', 'gap': '15px', 'flexWrap': 'wrap'})
+        ])
+    else:
+        nutrition_insights = html.Div()
+
+    # Goal Insights Display
+    if goal_metrics and 'target_weight' in goal_metrics:
+        goal_cards = []
+
+        # Current Progress Card
+        current_weight = goal_metrics['current_weight']
+        target_weight = goal_metrics['target_weight']
+        weight_to_change = goal_metrics['weight_to_change']
+        is_cutting = goal_metrics['is_cutting']
+
+        goal_cards.append(
+            html.Div([
+                html.H4("🎯 Goal", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                html.Div(f"{current_weight:.1f}kg → {target_weight:.1f}kg",
+                        style={'fontSize': '1.3rem', 'fontWeight': 'bold', 'color': '#852160', 'marginBottom': '5px'}),
+                html.Div(f"{abs(weight_to_change):.1f}kg to {'lose' if is_cutting else 'gain'}",
+                        style={'fontSize': '0.9rem', 'color': '#5a6b8a'})
+            ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': '2px solid #852160'})
+        )
+
+        # Time to Goal Card
+        if 'weeks_to_goal_current_pace' in goal_metrics and goal_metrics.get('will_reach_goal'):
+            weeks = goal_metrics['weeks_to_goal_current_pace']
+            date_str = goal_metrics['date_at_goal_current_pace'].strftime('%b %d, %Y')
+
+            goal_cards.append(
+                html.Div([
+                    html.H4("📅 At Current Pace", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(f"{abs(weeks):.1f} weeks",
+                            style={'fontSize': '1.3rem', 'fontWeight': 'bold', 'color': '#001c71', 'marginBottom': '5px'}),
+                    html.Div(f"ETA: {date_str}", style={'fontSize': '0.85rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': '2px solid #001c71'})
+            )
+        elif 'issue' in goal_metrics:
+            goal_cards.append(
+                html.Div([
+                    html.H4("⚠️ Warning", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(goal_metrics['issue'],
+                            style={'fontSize': '1rem', 'fontWeight': 'bold', 'color': '#FFA500', 'marginBottom': '5px'}),
+                    html.Div("Adjust your nutrition or training", style={'fontSize': '0.85rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': '2px solid #FFA500'})
+            )
+
+        # Recommended Calories Card
+        if 'recommended_daily_calories' in goal_metrics:
+            rec_cal = goal_metrics['recommended_daily_calories']
+            cal_adj = goal_metrics['calorie_adjustment']
+            optimal_label = goal_metrics['optimal_rate_label']
+
+            goal_cards.append(
+                html.Div([
+                    html.H4("🔥 Recommended Intake", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(f"{rec_cal} cal/day",
+                            style={'fontSize': '1.3rem', 'fontWeight': 'bold', 'color': '#83AE00', 'marginBottom': '5px'}),
+                    html.Div(f"{cal_adj:+d} from TDEE", style={'fontSize': '0.9rem', 'marginBottom': '3px', 'color': '#5a6b8a'}),
+                    html.Div(f"For {optimal_label}", style={'fontSize': '0.8rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': '2px solid #83AE00'})
+            )
+
+        # Body Composition Prediction Card
+        if 'predicted_muscle_at_goal' in goal_metrics:
+            muscle_change = goal_metrics['predicted_muscle_change']
+            fat_change = goal_metrics['predicted_fat_change']
+            quality = goal_metrics.get('prediction_quality', 'GOOD')
+            color = goal_metrics.get('prediction_color', '#001c71')
+            message = goal_metrics.get('prediction_message', '')
+
+            goal_cards.append(
+                html.Div([
+                    html.H4(f"📊 {quality}", style={'margin': '0 0 8px 0', 'fontSize': '0.9rem', 'color': '#001c71'}),
+                    html.Div(f"Muscle: {muscle_change:+.1f}kg | Fat: {fat_change:+.1f}kg",
+                            style={'fontSize': '1rem', 'fontWeight': 'bold', 'color': color, 'marginBottom': '5px'}),
+                    html.Div(message, style={'fontSize': '0.8rem', 'color': '#5a6b8a'})
+                ], style={'flex': '1', 'padding': '15px', 'background': 'white', 'borderRadius': '10px', 'border': f"2px solid {color}"})
+            )
+
+        goal_insights = html.Div([
+            html.H2("🎯 Goal Tracking", className="section-title"),
+            html.Div(goal_cards, style={'display': 'flex', 'gap': '15px', 'flexWrap': 'wrap'})
+        ])
+    else:
+        goal_insights = html.Div()
+
+    return (kpi_cards, plateau_section, nutrition_insights, goal_insights, comp_fig, recomp_fig, trunk_fig, leftleg_fig, leftarm_fig,
             rightleg_fig, rightarm_fig, legs_fig, health_fig, phase_fig,
             body_comp_ratios_fig, training_readiness_indicator, recovery_score_fig,
             segmental_phase_angle_fig, water_distribution_fig, velocity_display,
             muscle_projection_fig, fat_projection_fig, weight_projection_fig, goal_tracker, table_columns, table_data)
+
+
+# ============================================================================
+# NUTRITION TRACKING CALLBACKS
+# ============================================================================
+
+@app.callback(
+    [Output('nutrition-status', 'children'),
+     Output('nutrition-summary', 'children'),
+     Output('nutrition-calories', 'value'),
+     Output('nutrition-protein-pct', 'value'),
+     Output('nutrition-fat-pct', 'value'),
+     Output('nutrition-carbs-pct', 'value')],
+    [Input('save-nutrition-button', 'n_clicks')],
+    [State('nutrition-calories', 'value'),
+     State('nutrition-protein-pct', 'value'),
+     State('nutrition-fat-pct', 'value'),
+     State('nutrition-carbs-pct', 'value')],
+    prevent_initial_call=True
+)
+def save_nutrition_data(n_clicks, calories, protein_pct, fat_pct, carbs_pct):
+    """Save nutrition data to config file"""
+    if n_clicks is None:
+        return "", "", calories, protein_pct, fat_pct, carbs_pct
+
+    # Validate macros add up to 100%
+    total_pct = protein_pct + fat_pct + carbs_pct
+    if abs(total_pct - 100) > 1:  # Allow 1% tolerance for rounding
+        return (html.Div([
+            html.Span("❌ ", style={'color': '#852160', 'fontWeight': 'bold'}),
+            html.Span(f"Error: Macros must add up to 100% (currently {total_pct}%)", style={'color': '#852160'})
+        ]), "", calories, protein_pct, fat_pct, carbs_pct)
+
+    try:
+        # Load current config
+        config = load_config()
+
+        # Update nutrition data
+        config['nutrition'] = {
+            'daily_calories': calories,
+            'protein_pct': protein_pct,
+            'fat_pct': fat_pct,
+            'carbs_pct': carbs_pct,
+            'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        }
+
+        # Save config
+        save_config(config)
+
+        # Calculate macros in grams
+        protein_g = int((calories * protein_pct / 100) / 4)
+        fat_g = int((calories * fat_pct / 100) / 9)
+        carbs_g = int((calories * carbs_pct / 100) / 4)
+
+        status = html.Div([
+            html.Span("✅ ", style={'color': '#83AE00', 'fontWeight': 'bold'}),
+            html.Span("Nutrition data saved successfully! Dashboard will update on next refresh.",
+                     style={'color': '#83AE00'})
+        ])
+
+        summary = f"Macros: {protein_g}g protein ({protein_pct}%) | {fat_g}g fat ({fat_pct}%) | {carbs_g}g carbs ({carbs_pct}%)"
+
+        return status, summary, calories, protein_pct, fat_pct, carbs_pct
+
+    except Exception as e:
+        return (html.Div([
+            html.Span("❌ ", style={'color': '#852160', 'fontWeight': 'bold'}),
+            html.Span(f"Error saving nutrition data: {str(e)}", style={'color': '#852160'})
+        ]), "", calories, protein_pct, fat_pct, carbs_pct)
+
+
+@app.callback(
+    Output('nutrition-summary', 'children', allow_duplicate=True),
+    [Input('nutrition-calories', 'value'),
+     Input('nutrition-protein-pct', 'value'),
+     Input('nutrition-fat-pct', 'value'),
+     Input('nutrition-carbs-pct', 'value')],
+    prevent_initial_call=True
+)
+def update_nutrition_summary(calories, protein_pct, fat_pct, carbs_pct):
+    """Update nutrition summary as user types"""
+    if None in [calories, protein_pct, fat_pct, carbs_pct]:
+        return ""
+
+    # Calculate macros in grams
+    protein_g = int((calories * protein_pct / 100) / 4)
+    fat_g = int((calories * fat_pct / 100) / 9)
+    carbs_g = int((calories * carbs_pct / 100) / 4)
+
+    total_pct = protein_pct + fat_pct + carbs_pct
+
+    if abs(total_pct - 100) > 1:
+        return html.Span(f"⚠️ Macros total {total_pct}% (should be 100%)", style={'color': '#FFA500'})
+
+    return f"Macros: {protein_g}g protein ({protein_pct}%) | {fat_g}g fat ({fat_pct}%) | {carbs_g}g carbs ({carbs_pct}%) | Total: {total_pct}%"
+
+
+# ============================================================================
+# GOAL TRACKING CALLBACKS
+# ============================================================================
+
+@app.callback(
+    [Output('goal-status', 'children'),
+     Output('goal-target-weight', 'value'),
+     Output('goal-target-date', 'date')],
+    [Input('save-goal-button', 'n_clicks'),
+     Input('clear-goal-button', 'n_clicks')],
+    [State('goal-target-weight', 'value'),
+     State('goal-target-date', 'date')],
+    prevent_initial_call=True
+)
+def save_or_clear_goal(save_clicks, clear_clicks, target_weight, target_date):
+    """Save or clear goal data to/from config file"""
+    ctx = dash.callback_context
+
+    if not ctx.triggered:
+        return "", target_weight, target_date
+
+    button_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    # Handle Clear Goal button
+    if button_id == 'clear-goal-button':
+        try:
+            config = load_config()
+            config['goals'] = {
+                'target_weight': None,
+                'target_date': None,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+            save_config(config)
+
+            status = html.Div([
+                html.Span("🗑️ ", style={'color': '#5a6b8a', 'fontWeight': 'bold'}),
+                html.Span("Goal cleared successfully!", style={'color': '#5a6b8a'})
+            ])
+
+            return status, None, None
+
+        except Exception as e:
+            return (html.Div([
+                html.Span("❌ ", style={'color': '#852160', 'fontWeight': 'bold'}),
+                html.Span(f"Error clearing goal: {str(e)}", style={'color': '#852160'})
+            ]), target_weight, target_date)
+
+    # Handle Save Goal button
+    if button_id == 'save-goal-button':
+        # Validate target weight
+        if target_weight is None or target_weight <= 0:
+            return (html.Div([
+                html.Span("❌ ", style={'color': '#852160', 'fontWeight': 'bold'}),
+                html.Span("Please enter a valid target weight", style={'color': '#852160'})
+            ]), target_weight, target_date)
+
+        try:
+            config = load_config()
+
+            # Convert date to string if provided
+            target_date_str = target_date if target_date else None
+
+            config['goals'] = {
+                'target_weight': target_weight,
+                'target_date': target_date_str,
+                'last_updated': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            }
+
+            save_config(config)
+
+            status = html.Div([
+                html.Span("✅ ", style={'color': '#83AE00', 'fontWeight': 'bold'}),
+                html.Span(f"Goal saved: Target {target_weight}kg" + (f" by {target_date_str}" if target_date_str else ""),
+                         style={'color': '#83AE00'})
+            ])
+
+            return status, target_weight, target_date
+
+        except Exception as e:
+            return (html.Div([
+                html.Span("❌ ", style={'color': '#852160', 'fontWeight': 'bold'}),
+                html.Span(f"Error saving goal: {str(e)}", style={'color': '#852160'})
+            ]), target_weight, target_date)
+
+    return "", target_weight, target_date
 
 
 # ============================================================================
